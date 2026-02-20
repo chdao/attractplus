@@ -47,6 +47,8 @@
 
 #ifdef SFML_SYSTEM_WINDOWS
 #include <windows.h>
+#include <io.h>
+#include <fcntl.h>
 #include "nvapi.hpp"
 
 extern "C"
@@ -69,6 +71,24 @@ void process_args( int argc, char *argv[],
 
 int main(int argc, char *argv[])
 {
+#ifdef WINDOWS_CONSOLE
+	// Ensure stdout/stderr go to the parent cmd.exe console when run from it.
+	// Attach if we don't have a console (e.g. launched from GUI); then redirect via _dup2
+	// so C/C++ streams actually write to the console (freopen alone doesn't fix C++ streams).
+	if ( !GetConsoleWindow() )
+		AttachConsole( ATTACH_PARENT_PROCESS );
+	if ( GetConsoleWindow() != NULL )
+	{
+		int con = _open( "CONOUT$", _O_WRONLY );
+		if ( con >= 0 )
+		{
+			_dup2( con, 1 );
+			_dup2( con, 2 );
+			_close( con );
+		}
+	}
+#endif
+
 	std::string config_path, log_file;
 	bool launch_game = false;
 	bool initial_load = true;
@@ -166,6 +186,8 @@ int main(int argc, char *argv[])
 	window.initial_create();
 
 #ifdef WINDOWS_CONSOLE
+	// Never hide console for attractplus-console.exe - user runs it specifically to see output
+#else
 	if ( feSettings.get_hide_console() )
 		hide_console();
 #endif
@@ -173,6 +195,14 @@ int main(int argc, char *argv[])
 	FeVM feVM( feSettings, window, soundsys.get_ambient_sound(), process_console );
 	FeOverlay feOverlay( window, feSettings, feVM, soundsys );
 	feVM.set_overlay( &feOverlay );
+
+#ifdef SFML_SYSTEM_WINDOWS
+	FeWindow::set_audio_reset_callback( [&soundsys, &feVM]() {
+		soundsys.release_audio( false );
+		soundsys.play_ambient();
+		feVM.release_layout_audio( false );
+	} );
+#endif
 
 	// Set transforms now in case load_layout never gets called (ie: first-run), required for multimon
 	feVM.set_transforms();
@@ -410,7 +440,14 @@ int main(int argc, char *argv[])
 					//
 					if (( c == FeInputMap::LAST_COMMAND )
 							&& ( feVM.reset_screen_saver() ))
-						redraw = true;
+				{
+					redraw = true;
+					if ( feVM.did_return_from_screensaver() )
+					{
+						soundsys.release_audio( false );
+						soundsys.play_ambient();
+					}
+				}
 				}
 
 				else if ( ev->is<sf::Event::FocusGained>() )
@@ -645,7 +682,14 @@ int main(int argc, char *argv[])
 
 			soundsys.sound_event( c );
 			if ( feVM.handle_event( c ) )
+			{
 				redraw = true;
+				if ( feVM.did_return_from_screensaver() )
+				{
+					soundsys.release_audio( false );
+					soundsys.play_ambient();
+				}
+			}
 			else
 			{
 				// handle the things that fePresent doesn't do

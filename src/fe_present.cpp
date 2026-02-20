@@ -192,7 +192,8 @@ FePresent::FePresent( FeSettings *fesettings, FeWindow &wnd )
 	m_overlay_caption( NULL ),
 	m_overlay_lb( NULL ),
 	m_layout_loaded( false ),
-	m_layout_has_content( false )
+	m_layout_has_content( false ),
+	m_returned_from_screensaver( false )
 {
 	m_baseRotation = m_feSettings->get_screen_rotation();
 	m_layoutFontName = "";
@@ -1061,6 +1062,16 @@ bool FePresent::reset_screen_saver()
 	return false;
 }
 
+bool FePresent::did_return_from_screensaver()
+{
+	if ( m_returned_from_screensaver )
+	{
+		m_returned_from_screensaver = false;
+		return true;
+	}
+	return false;
+}
+
 // First press, repeat in main
 bool FePresent::handle_event( FeInputMap::Command c )
 {
@@ -1318,6 +1329,25 @@ void FePresent::load_layout( bool initial_load )
 	update_to( ToNewList, true );
 	on_transition( ToNewList, FromToNoValue );
 	m_layout_time.start();
+	m_layout_time.tick();
+	m_layout_time_old = m_layout_time.getElapsedTime();
+
+	// Ensure video play state is applied (fixes videos not looping after returning from screensaver)
+	set_video_play_state( m_playMovies );
+
+	if ( var == FromToScreenSaver )
+	{
+		m_returned_from_screensaver = true;
+#ifndef NO_MOVIE
+		// Re-establish audio after display may have slept during screensaver
+		for ( std::vector<FeBaseTextureContainer *>::iterator itm=m_texturePool.begin();
+				itm != m_texturePool.end(); ++itm )
+			(*itm)->release_audio( false );
+		for ( std::vector<FeSound *>::iterator its=m_sounds.begin();
+				its != m_sounds.end(); ++its )
+			(*its)->release_audio( false );
+#endif
+	}
 }
 
 bool FePresent::tick()
@@ -1482,6 +1512,18 @@ void FePresent::set_video_play_state( bool state )
 	for ( std::vector<FeBaseTextureContainer *>::iterator itm=m_texturePool.begin();
 				itm != m_texturePool.end(); ++itm )
 		(*itm)->set_play_state( state );
+}
+
+void FePresent::release_layout_audio( bool state )
+{
+#ifndef NO_MOVIE
+	for ( std::vector<FeBaseTextureContainer *>::iterator itm=m_texturePool.begin();
+				itm != m_texturePool.end(); ++itm )
+		(*itm)->release_audio( state );
+	for ( std::vector<FeSound *>::iterator its=m_sounds.begin();
+				its != m_sounds.end(); ++its )
+		(*its)->release_audio( state );
+#endif
 }
 
 void FePresent::set_audio_loudness( bool enabled )

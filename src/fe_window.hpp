@@ -25,6 +25,7 @@
 
 #ifdef SFML_SYSTEM_WINDOWS
 #include <windows.h>
+#include <functional>
 #endif
 
 #include <SFML/Graphics.hpp>
@@ -69,6 +70,8 @@ private:
 	sf::RenderWindow m_blackout;
 	static inline bool s_system_resumed = false;
 	static inline WNDPROC s_sfml_wnd_proc = nullptr;
+	static inline std::function<void()> s_audio_reset_callback;
+	HPOWERNOTIFY m_powerNotifyHandle = nullptr;
 	static LRESULT CALLBACK CustomWndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam );
 	void check_for_sleep();
 #endif
@@ -77,6 +80,9 @@ private:
 	FeWindowPosition m_win_pos;
 
 public:
+#ifdef SFML_SYSTEM_WINDOWS
+	static void set_audio_reset_callback( std::function<void()> cb ) { s_audio_reset_callback = std::move( cb ); }
+#endif
 	FeWindow( FeSettings &fes );
 	~FeWindow();
 

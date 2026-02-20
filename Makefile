@@ -65,6 +65,7 @@ override FE_VERSION := v3.2.2
 CC ?= gcc
 CXX ?= g++
 CFLAGS = $(EXTRA_CFLAGS)
+LDFLAGS =
 STRIP ?= strip
 PKG_CONFIG ?= pkg-config
 AR ?= ar
@@ -314,14 +315,23 @@ ifneq ($(FE_WINDOWS_COMPILE),1)
 else
  LIBS += -lopengl32 -lgdi32
  LIBS += -L$(EXTLIBS_DIR)/openal-soft
- LIBS += -lopengl32 -lFLAC -lvorbisfile -lopenal32-s -lwinmm
+ LIBS += -lopengl32 -lFLAC -lopenal32-s -lwinmm
 endif
 
 
 ifeq ($(FE_WINDOWS_COMPILE),1)
+# When CROSS=1 (MXE), keep TOOLCHAIN-prefixed CC/CXX; otherwise use native gcc/g++
+ifneq ($(origin CROSS),undefined)
+ override CC := $(TOOLCHAIN)-gcc
+ override CXX := $(TOOLCHAIN)-g++
+else
+ override CC := gcc
+ override CXX := g++
+endif
  _DEP += attractplus.rc
  _OBJ += attractplus.res
  LIBS += -ldwmapi
+ LDFLAGS += -static -static-libgcc -static-libstdc++ -Wl,-Bstatic -lstdc++ -lgcc -lwinpthread -Wl,-Bdynamic
  ifeq ($(WINDOWS_CONSOLE),1)
   CFLAGS += -mconsole
   FE_FLAGS += -DWINDOWS_CONSOLE
@@ -402,7 +412,7 @@ endif
 
 ifeq ($(NO_MOVIE),1)
  FE_FLAGS += -DNO_MOVIE
- ifeq ($(WINDOWS_STATIC),1)
+ ifeq ($(STATIC),1)
   LIBS += -lsfml-audio-s
  else
   LIBS += -lsfml-audio
@@ -415,11 +425,29 @@ endif
 
 CFLAGS += -D__STDC_CONSTANT_MACROS -I$(RES_IMGS_DIR) -I$(RES_FONTS_DIR) -I$(RES_LANGUAGE_DIR)
 
+ifneq ($(strip $(PKG_CONFIG_LIBS)),)
 ifeq ($(shell $(PKG_CONFIG) --libs $(PKG_CONFIG_LIBS) && echo "1" || echo "0"), 0)
   $(error pkg-config couldn't find some libraries, aborting)
 endif
-LIBS := $(LIBS) $(shell $(PKG_CONFIG) --libs $(PKG_CONFIG_LIBS))
+# On Windows native (MSYS2), static libs pull in complex deps. Use shared linking.
+# Skip when WINDOWS_STATIC=1 (MXE cross-compile) - MXE provides properly built static libs.
+ifeq ($(FE_WINDOWS_COMPILE),1)
+ifneq ($(WINDOWS_STATIC),1)
+  PKG_CONFIG_LIBS_SHARED := libavformat libavcodec libavutil libswscale libswresample libarchive libcurl
+  PKG_CONFIG_LIBS_STATIC := $(filter-out $(PKG_CONFIG_LIBS_SHARED),$(PKG_CONFIG_LIBS))
+  LIBS := $(LIBS) $(shell $(PKG_CONFIG) --libs $(PKG_CONFIG_LIBS_STATIC)) -Wl,-Bdynamic $(shell $(PKG_CONFIG) --libs $(filter $(PKG_CONFIG_LIBS_SHARED),$(PKG_CONFIG_LIBS)))
+else
+  LIBS := $(LIBS) $(shell $(PKG_CONFIG) --libs $(PKG_CONFIG_LIBS))
+endif
+else
+  LIBS := $(LIBS) $(shell $(PKG_CONFIG) --libs $(PKG_CONFIG_LIBS))
+endif
 CFLAGS := $(CFLAGS) $(shell $(PKG_CONFIG) --cflags $(PKG_CONFIG_LIBS))
+endif
+# MXE cross-compile: pkg-config cflags may be empty; add sysroot include explicitly
+ifneq ($(CROSS_SYSROOT),)
+CFLAGS += -I$(CROSS_SYSROOT)/include
+endif
 
 EXE = $(EXE_BASE)$(EXE_EXT)
 
@@ -428,6 +456,8 @@ ifeq ($(BUILD_EXPAT),1)
  EXPAT = $(OBJ_DIR)/libexpat.a
  ifneq ($(FE_WINDOWS_COMPILE),1)
   EXPAT_FLAGS = -DXML_DEV_URANDOM -DHAVE_MEMMOVE
+ else
+  EXPAT_FLAGS = -DXML_POOR_ENTROPY -DHAVE_MEMMOVE
  endif
 else
  LIBS += -lexpat
@@ -487,7 +517,7 @@ $(OBJ_DIR)/%.h: % | $(RES_FONTS_DIR) $(RES_IMGS_DIR)
 
 $(EXE): $(OBJ) $(EXPAT) $(SQUIRREL)
 	$(EXE_MSG)
-	$(SILENT)$(CXX) -o $@ $^ $(CFLAGS) $(FE_FLAGS) $(LIBS)
+	$(SILENT)$(CXX) -o $@ $^ $(CFLAGS) $(FE_FLAGS) $(LIBS) $(LDFLAGS)
 ifneq ($(FE_DEBUG),1)
 	$(SILENT)$(STRIP) $@
 endif
@@ -531,8 +561,10 @@ ifeq ($(STATIC),1)
 	$(eval SFML_LIBS += $(shell PKG_CONFIG_PATH$(PKG_CONFIG_MXE)="$(SFML_PKG_CONFIG_PATH):${PKG_CONFIG_PATH}" $(PKG_CONFIG) --static --libs-only-L $(SFML_PC)))
 	$(info Manually adding sfml libs as pkg-config has no --static version)
 	$(eval SFML_LIBS += -lsfml-graphics-s -lsfml-window-s -lsfml-audio-s -lsfml-system-s)
-	$(eval CFLAGS += -DSFML_STATIC $(shell PKG_CONFIG_PATH$(PKG_CONFIG_MXE)="$(SFML_PKG_CONFIG_PATH):${PKG_CONFIG_PATH}" $(PKG_CONFIG) --static --cflags $(SFML_PC)))
+	$(eval SFML_CFLAGS := $(shell PKG_CONFIG_PATH$(PKG_CONFIG_MXE)="$(SFML_PKG_CONFIG_PATH):${PKG_CONFIG_PATH}" $(PKG_CONFIG) --static --cflags $(SFML_PC) 2>/dev/null))
+	$(eval CFLAGS += -DSFML_STATIC $(if $(SFML_CFLAGS),$(SFML_CFLAGS),-I$(SFML_OBJ_DIR)/install/include))
 ifeq ($(FE_WINDOWS_COMPILE),1)
+	$(eval SFML_LIBS += -lvorbisfile -lvorbisenc -lvorbis -logg)
 else ifeq ($(FE_MACOSX_COMPILE),1)
 else
 		$(eval SFML_LIBS += -lGL -lGLU -lm -lz -ludev -lrt)

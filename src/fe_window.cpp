@@ -33,6 +33,8 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <dwmapi.h>
+#include <cstring>
+/* GUID_CONSOLE_DISPLAY_STATE is provided by MinGW winnt.h */
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
@@ -123,8 +125,22 @@ bool is_multimon_config( FeSettings &fes )
 LRESULT CALLBACK FeWindow::CustomWndProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam )
 {
 	if ( msg == WM_POWERBROADCAST )
+	{
 		if ( wParam == PBT_APMRESUMEAUTOMATIC || wParam == PBT_APMRESUMESUSPEND )
 			FeWindow::s_system_resumed = true;
+		else if ( wParam == PBT_POWERSETTINGCHANGE && lParam != 0 )
+		{
+			// Display turned back on after monitor power save - reinit audio
+			const auto *pbs = reinterpret_cast<const POWERBROADCAST_SETTING *>( lParam );
+			if ( memcmp( &pbs->PowerSetting, &GUID_CONSOLE_DISPLAY_STATE, sizeof( GUID ) ) == 0
+				&& pbs->DataLength >= sizeof( DWORD ) )
+			{
+				DWORD state = *reinterpret_cast<const DWORD *>( pbs->Data );
+				if ( state == 1 ) // PowerMonitorOn
+					FeWindow::s_system_resumed = true;
+			}
+		}
+	}
 
 	return CallWindowProc( s_sfml_wnd_proc, hwnd, msg, wParam, lParam );
 }
@@ -143,6 +159,14 @@ FeWindow::~FeWindow()
 {
 	if ( m_running_pid && process_exists( m_running_pid ) )
 		kill_program( m_running_pid );
+
+#ifdef SFML_SYSTEM_WINDOWS
+	if ( m_powerNotifyHandle )
+	{
+		UnregisterPowerSettingNotification( m_powerNotifyHandle );
+		m_powerNotifyHandle = nullptr;
+	}
+#endif
 
 	if ( m_window )
 		delete m_window;
@@ -178,6 +202,7 @@ void FeWindow::check_for_sleep()
 		std::optional<std::string> current_device = sf::PlaybackDevice::getDevice();
 		if ( current_device.has_value() )
 		{
+			FeLog() << "Resume: reinitializing audio device: " << *current_device << std::endl;
 			bool success = false;
 			for ( int attempt = 0; attempt < 20; ++attempt )
 			{
@@ -187,11 +212,16 @@ void FeWindow::check_for_sleep()
 				else
 					sf::sleep( sf::milliseconds( 100 ) );
 			}
-			if ( !success )
-				FeLog() << "ERROR: Failed to reinitialize audio" << std::endl;
+			if ( success )
+				FeLog() << "Resume: audio bound to device: " << *current_device << std::endl;
+			else
+				FeLog() << "ERROR: Failed to reinitialize audio (device: " << *current_device << ")" << std::endl;
 		}
 		else
 			FeLog() << "ERROR: No current audio device" << std::endl;
+
+		if ( s_audio_reset_callback )
+			s_audio_reset_callback();
 
 		s_system_resumed = false;
 	}
@@ -497,6 +527,8 @@ void FeWindow::initial_create()
 
 	s_sfml_wnd_proc = reinterpret_cast<WNDPROC>( GetWindowLongPtr( hwnd, GWLP_WNDPROC ));
 	SetWindowLongPtr( hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>( CustomWndProc ));
+
+	m_powerNotifyHandle = RegisterPowerSettingNotification( hwnd, &GUID_CONSOLE_DISPLAY_STATE, DEVICE_NOTIFY_WINDOW_HANDLE );
 
 	// Trigger title bar redraw to fix Win10 dark-mode (initially draws in light-mode)
 	display();

@@ -919,16 +919,19 @@ void FeTextureContainer::set_fft_bands( int count )
 {
 	m_fft_bands = count;
 
+#ifndef NO_MOVIE
 	if ( m_movie )
 		m_movie->set_fft_bands( count );
+#endif
 }
 
 int FeTextureContainer::get_fft_bands() const
 {
+#ifndef NO_MOVIE
 	if ( m_movie )
 		return m_movie->get_fft_bands();
-	else
-		return m_fft_bands;
+#endif
+	return m_fft_bands;
 }
 
 float FeTextureContainer::get_sample_aspect_ratio() const

@@ -5,6 +5,31 @@
 // Based on original intro script, updated by Chris Van Graas
 //
 ///////////////////////////////////////////////////
+
+// Signal MarqueeDisplay that frontend has started (runs before plugins load)
+local _cfg = FeConfigDirectory;
+// Workaround: path_expand("[config]") and some configs can leave literal "[config]" in path
+local _idx = _cfg.find("[config]");
+if (_idx >= 0) _cfg = _cfg.slice(0, _idx) + _cfg.slice(_idx + 8);
+if (_cfg.len() > 0) {
+	local _ps = (_cfg.find("\\") >= 0) ? "\\" : "/";
+	local _lead = (_cfg.slice(-1) == "/" || _cfg.slice(-1) == "\\") ? "" : _ps;
+	local _dir = _cfg + _lead + "plugins" + _ps + "MarqueeDisplay";
+	local _out = _dir + _ps;
+	local _json = "{\"marquee_path\":null,\"game\":\"intro\",\"title\":\"intro\",\"state\":\"idle\"}";
+	try {
+		if (!fe.path_test(_dir, PathTest.IsDirectory))
+			system("mkdir \"" + _dir + "\"");
+		local _f = file(_out + "current.json", "w");
+		local _b = blob(_json.len());
+		for (local i = 0; i < _json.len(); i++) _b.writen(_json[i], 'b');
+		_f.writeblob(_b);
+		print("[intro] Wrote current.json to " + _out + "current.json (video=intro)\n");
+	} catch (e) {
+		print("[intro] Could not write current.json: " + e + "\n");
+	}
+}
+
 class UserConfig
 {
     </ label="Play intro", help="Toggle playback of intro video when Attract-Mode starts", options="Yes,No", order=1 />

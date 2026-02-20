@@ -177,6 +177,7 @@ protected:
 	FeListBox *m_overlay_lb;
 	bool m_layout_loaded;
 	bool m_layout_has_content;
+	bool m_returned_from_screensaver;
 
 	FePresent( const FePresent & );
 	FePresent &operator=( const FePresent & );
@@ -259,6 +260,7 @@ public:
 	void post_run();
 
 	bool reset_screen_saver();
+	bool did_return_from_screensaver(); // true once after load_layout from screensaver, then false
 	bool handle_event( FeInputMap::Command );
 
 	void change_selection( int step, bool end_navigation=true );
@@ -295,6 +297,7 @@ public:
 	void set_video_play_state( bool state );
 	void set_audio_loudness( bool enabled );
 	bool get_video_toggle() { return m_playMovies; };
+	void release_layout_audio( bool state );
 
 	int get_layout_ms();
 	sf::Time get_layout_time();

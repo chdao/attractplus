@@ -175,3 +175,24 @@ The recommended way to build Windows binaries for Attract-Mode Plus is to cross 
    ```
 
    This builds a version of Attract-Mode Plus with various .dll dependencies. To run the program, you will need to add `c:\msys64\mingw64\bin` to your path (for 64-bit systems) or copy the dependent .dlls from that directory into the same directory you will run Attract-Mode Plus from.
+
+---
+
+## Fully static Windows release (no DLLs)
+
+To build a self-contained ~80MB executable with no external DLLs, use MXE via WSL:
+
+1. Install [WSL](https://docs.microsoft.com/en-us/windows/wsl/install) (e.g. `wsl --install`)
+
+2. From PowerShell in the attractplus directory:
+   ```powershell
+   .\build-static-release.ps1
+   ```
+   Or from WSL:
+   ```sh
+   bash util/win/build-static-release.sh
+   ```
+
+3. First run builds MXE and dependencies (~1–4 hours). Subsequent builds take ~5–15 minutes.
+
+4. Output: `attractplus-<version>-win64-static.zip` containing the static exe, config, and docs.
